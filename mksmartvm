@@ -6,12 +6,37 @@
 #  - Memory size is in MB
 #  - SSH port is the local forwarded port to the VM:22
 #
-disksize="32"
-memsize="1024"
-sshport="2222"
-vmname="SmartOS"
-host="https://us-east.manta.joyent.com"
 
+default_vmname="SmartOS"
+default_disksize="32"
+default_memsize="1024"
+default_sshport="2222"
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+  cat <<EOF
+usage: $(basename $0) [vmname] [disksize] [memsize] [sshport]
+
+Create (or update) a VirtualBox machine with the latest SmartOS image.
+Arguments are optional. Defaults are:
+
+If a machine with the given name already exists only the ISO will be updated
+(disksize and memsize will be unchanged)
+
+vmname:    ${default_vmname}
+disksize:  ${default_disksize} GB
+memsize:   ${default_memsize} MB
+ssh port:  ${default_sshport} (local port will be forwarded to port 22 in the VM)
+EOF
+
+  exit
+fi
+
+
+vmname="${1:-$default_vmname}"
+disksize="${2:-$default_disksize}"
+memsize="${3:-$default_memsize}"
+sshport="${4:-$default_sshport}"
+host="https://us-east.manta.joyent.com"
 
 set -e
 vboxdir=$(VBoxManage list systemproperties \
@@ -28,7 +53,7 @@ latest_md5=$(curl -s $md5sums_url | awk "/${smartos_version}.iso/ { print \$1 }"
 #
 mkdir -p "${vboxdir}/${vmname}"
 if [ ! -f "${vboxdir}/${vmname}/smartos-${smartos_version}.iso" ]; then
-  echo "Downloading ${dlsite}/smartos-${smartos_version}.iso"
+  echo "Downloading ${latest_url}/smartos-${smartos_version}.iso"
   curl -o "${vboxdir}/${vmname}/smartos-${smartos_version}.iso" \
           ${latest_url}/smartos-${smartos_version}.iso
   if [[ "$OSTYPE" =~ ^darwin ]]; then
@@ -52,6 +77,14 @@ fi
 # Create VirtualBox VM
 #
 echo "Creating/Updating Virtual Machine"
+cat <<EOF
+Settings:
+vmname:    ${vmname}
+disksize:  ${disksize} GB
+memsize:   ${memsize} MB
+ssh port:  ${sshport}
+EOF
+
 if VBoxManage showvminfo "${vmname}" >/dev/null 2>&1; then
     # VM already exists, just update the ISO image
     VBoxManage storageattach "${vmname}" --storagectl "IDE Controller" \
