@@ -10,22 +10,18 @@ disksize="32"
 memsize="1024"
 sshport="2222"
 vmname="SmartOS"
-dlsite="https://download.joyent.com/pub/iso"
+host="https://us-east.manta.joyent.com"
 
+
+set -e
 vboxdir=$(VBoxManage list systemproperties \
             | awk '/^Default.machine.folder/ { print $4 }')
 
-#
-# Download MD5 file and parse it for the latest ISO image and checksum
-#
-curl -o smartos-sums.txt ${dlsite}/md5sums.txt 2>/dev/null
-latest_md5=$(awk '/latest.iso/ { print $1 }' smartos-sums.txt)
-smartos_version=$(sed -ne "/^${latest_md5}/s/.*-\(.*\).iso/\1/p" \
-                    smartos-sums.txt)
-if [ -z "${smartos_version}" ]; then
-  echo "ERROR: Couldn't determine latest version"
-  exit 1
-fi
+latest_path=$(curl -sk "$host/Joyent_Dev/public/SmartOS/latest")
+smartos_version="${latest_path##*/}"
+latest_url="${host}${latest_path}"
+md5sums_url="$host$latest_path/md5sums.txt"
+latest_md5=$(curl -s $md5sums_url | awk "/${smartos_version}.iso/ { print \$1 }")
 
 #
 # Download the latest ISO image and verify
@@ -34,7 +30,7 @@ mkdir -p "${vboxdir}/${vmname}"
 if [ ! -f "${vboxdir}/${vmname}/smartos-${smartos_version}.iso" ]; then
   echo "Downloading ${dlsite}/smartos-${smartos_version}.iso"
   curl -o "${vboxdir}/${vmname}/smartos-${smartos_version}.iso" \
-          ${dlsite}/smartos-${smartos_version}.iso
+          ${latest_url}/smartos-${smartos_version}.iso
   if [[ "$OSTYPE" =~ ^darwin ]]; then
     dl_md5=$(md5 "${vboxdir}/${vmname}/smartos-${smartos_version}.iso" \
              | awk '{ print $4 }')
@@ -56,8 +52,7 @@ fi
 # Create VirtualBox VM
 #
 echo "Creating/Updating Virtual Machine"
-VBoxManage showvminfo "${vmname}" >/dev/null 2>&1
-if [ $? -eq 0 ]; then
+if VBoxManage showvminfo "${vmname}" >/dev/null 2>&1; then
     # VM already exists, just update the ISO image
     VBoxManage storageattach "${vmname}" --storagectl "IDE Controller" \
       --port 1 --device 0 --type dvddrive \
@@ -66,6 +61,7 @@ else
     # Create the VM
     VBoxManage createvm --name "${vmname}" --ostype OpenSolaris_64 --register
     VBoxManage storagectl "${vmname}" --name "IDE Controller" --add ide
+    VBoxManage storagectl "${vmname}" --name "SATA Controller" --add sata
 
     # Attach the ISO image
     VBoxManage storageattach "${vmname}" --storagectl "IDE Controller" \
@@ -75,7 +71,7 @@ else
     # Create and attach the zone disk
     VBoxManage createhd --filename "${vboxdir}/${vmname}/smartos-zones.vdi" \
       --size $(echo "${disksize}*1024" | bc)
-    VBoxManage storageattach "${vmname}" --storagectl "IDE Controller" \
+    VBoxManage storageattach "${vmname}" --storagectl "SATA Controller" \
       --port 0 --device 0 --type hdd \
       --medium "${vboxdir}/${vmname}/smartos-zones.vdi"
 
